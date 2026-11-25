@@ -640,9 +640,18 @@ class Image(BaseMessageComponent):
     url: str | None = ""
     # 额外
     path: str | None = ""
+    # 平台侧给出的图片来源分类，例如 "sticker"（表情包/梗图）或 "photo"。
+    # 由适配器在有能力判断时填充；无法判断时保持 None。
+    sub_type: str | None = None
 
-    def __init__(self, file: str | None, **_) -> None:
+    def __init__(
+        self,
+        file: str | None,
+        sub_type: str | None = None,
+        **_: object,
+    ) -> None:
         super().__init__(file=file, **_)
+        self.sub_type = sub_type
 
     @staticmethod
     def fromURL(url: str, **_):
