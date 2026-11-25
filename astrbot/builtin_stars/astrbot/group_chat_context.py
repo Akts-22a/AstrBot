@@ -39,6 +39,12 @@ GROUP_HISTORY_HEADER = (
 GROUP_HISTORY_FOOTER = "\n--- END CONTEXT ---\n</system_reminder>"
 DEFAULT_GROUP_MESSAGE_MAX_CNT = 1000
 
+# 表情包用单独的描述提示词：要求只描述画面与情绪，避免翻译/拼音/推测
+STICKER_CAPTION_PROMPT = (
+    "用一句中文描述这个表情包的画面内容和传达的情绪。"
+    "只描述能看到的内容，不要翻译、不要标注拼音、不要推测出处。"
+)
+
 
 class GroupChatContext:
     def __init__(self, acm: AstrBotConfigManager, context: star.Context) -> None:
@@ -92,6 +98,7 @@ class GroupChatContext:
         image_url: str,
         image_caption_provider_id: str,
         image_caption_prompt: str,
+        sub_type: str | None = None,
     ) -> str:
         if not image_caption_provider_id:
             provider = await self.context.get_using_provider_async()
@@ -101,8 +108,11 @@ class GroupChatContext:
                 raise Exception(f"没有找到 ID 为 {image_caption_provider_id} 的提供商")
         if not isinstance(provider, Provider):
             raise Exception(f"提供商类型错误({type(provider)})，无法获取图片描述")
+        prompt = image_caption_prompt
+        if sub_type == "sticker":
+            prompt = STICKER_CAPTION_PROMPT
         response = await provider.text_chat(
-            prompt=image_caption_prompt,
+            prompt=prompt,
             session_id=uuid.uuid4().hex,
             image_urls=[image_url],
             persist=False,
@@ -204,6 +214,12 @@ class GroupChatContext:
             if isinstance(comp, Plain):
                 parts.append(f" {comp.text}")
             elif isinstance(comp, Image):
+                # 平台能判断是表情包时用 Sticker 标签，模型才知道那是梗图而非照片
+                image_label = (
+                    "Sticker"
+                    if getattr(comp, "sub_type", None) == "sticker"
+                    else "Image"
+                )
                 if cfg["image_caption"]:
                     try:
                         url = comp.url if comp.url else comp.file
@@ -213,12 +229,14 @@ class GroupChatContext:
                             url,
                             cfg["image_caption_provider_id"],
                             cfg["image_caption_prompt"],
+                            sub_type=getattr(comp, "sub_type", None),
                         )
-                        parts.append(f" [Image: {caption}]")
+                        parts.append(f" [{image_label}: {caption}]")
                     except Exception as e:
                         logger.error(f"获取图片描述失败: {e}")
+                        parts.append(f" [{image_label}]")
                 else:
-                    parts.append(" [Image]")
+                    parts.append(f" [{image_label}]")
             elif isinstance(comp, Json):
                 card_data = comp.data
                 if isinstance(card_data, dict) and isinstance(
