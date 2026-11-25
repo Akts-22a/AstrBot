@@ -757,6 +757,44 @@ class QQOfficialPlatformAdapter(Platform):
 
         return Record(file=path_wav, url=path_wav)
 
+def _qq_image_sub_type(
+    content_type: str,
+    filename: str,
+    width: object = None,
+    height: object = None,
+) -> str | None:
+    """根据 QQ 附件元数据判断图片是表情包还是普通图片。
+
+    QQ 官方机器人接口不直接给出"这是表情"标记，但附件带有
+    content_type / filename / width / height，可以据此区分：
+
+    - image/gif 基本是动图表情包
+    - 尺寸很小（长边 <= 320）通常是表情包/贴纸
+    - 其余按普通图片处理
+
+    Returns:
+        "sticker" / "photo" / None（无数据时不判断）
+    """
+    ct = (content_type or "").lower()
+    name = (filename or "").lower()
+    if not ct.startswith("image"):
+        return None
+    if ct in ("image/gif", "image/webp") and name.endswith((".gif", ".webp")):
+        return "sticker"
+    if ct == "image/gif":
+        return "sticker"
+    try:
+        w = int(width) if width is not None else 0
+        h = int(height) if height is not None else 0
+    except (TypeError, ValueError):
+        w = h = 0
+    if w and h and max(w, h) <= 320:
+        return "sticker"
+    if name.endswith((".gif", ".webp")):
+        return "sticker"
+    return "photo"
+
+
     @staticmethod
     async def _append_attachments(
         msg: list[BaseMessageComponent],
@@ -781,6 +819,8 @@ class QQOfficialPlatformAdapter(Platform):
                     or attachment.get("name")
                     or "attachment",
                 )
+                width = attachment.get("width")
+                height = attachment.get("height")
             else:
                 content_type = cast(
                     str,
@@ -795,11 +835,17 @@ class QQOfficialPlatformAdapter(Platform):
                     or getattr(attachment, "name", None)
                     or "attachment",
                 )
+                width = getattr(attachment, "width", None)
+                height = getattr(attachment, "height", None)
             if not url:
                 continue
 
             if content_type.startswith("image"):
-                msg.append(Image.fromURL(url))
+                msg.append(
+                    Image.fromURL(url, sub_type=_qq_image_sub_type(
+                        content_type, filename, width, height
+                    ))
+                )
             else:
                 ext = Path(filename).suffix.lower()
                 image_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
